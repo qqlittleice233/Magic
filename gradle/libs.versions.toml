@@ -1,0 +1,14 @@
+[versions]
+agp = "8.3.2"
+commonsCli = "1.7.0"
+kotlin = "1.9.22"
+
+
+[libraries]
+commons-cli = { module = "commons-cli:commons-cli", version.ref = "commonsCli" }
+
+
+[plugins]
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+jetbrainsKotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+
