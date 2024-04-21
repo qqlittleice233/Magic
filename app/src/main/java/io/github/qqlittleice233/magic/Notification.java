@@ -61,6 +61,16 @@ public class Notification {
                 .longOpt("autoCancel")
                 .build()
         );
+        option.addOption(Option.builder()
+                .hasArg()
+                .longOpt("progress")
+                .build()
+        );
+        option.addOption(Option.builder()
+                .hasArg()
+                .longOpt("progressMax")
+                .build()
+        );
         return option;
     }
 
@@ -100,6 +110,20 @@ public class Notification {
                 .required()
                 .build()
         );
+        group.addOption(Option.builder()
+                .hasArg()
+                .longOpt("progress")
+                .desc("[Optional@Int] Set the progress this notification represents. Progress should be in the range 0 to progressMax.")
+                .required()
+                .build()
+        );
+        group.addOption(Option.builder()
+                .hasArg()
+                .longOpt("progressMax")
+                .desc("[Optional@Int] Set the maximum progress this notification represents.")
+                .required()
+                .build()
+        );
         return group;
     }
 
@@ -125,7 +149,7 @@ public class Notification {
     private static final Options options = getOptions();
 
     public static void main(String[] args) {
-        Thread.setDefaultUncaughtExceptionHandler((t, e) -> log(e));
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> System.out.println("Uncaught exception: " + Log.getStackTraceString(e)));
         try {
             CommandLineParser parser = new DefaultParser();
             CommandLine cmd = parser.parse(options, args);
@@ -146,6 +170,8 @@ public class Notification {
                 String text = cmd.getOptionValue("text");
                 String tag = null;
                 int id = 0;
+                Integer progress = null;
+                Integer progressMax = null;
                 if (cmd.hasOption("id")) {
                     try {
                         id = Integer.parseInt(cmd.getOptionValue("id"));
@@ -161,7 +187,34 @@ public class Notification {
                     System.out.println("Title and text are required.");
                     return;
                 }
-                sendNotification(title, text, tag, id, autoCancel);
+                if (cmd.hasOption("progress")) {
+                    try {
+                        progress = Integer.parseInt(cmd.getOptionValue("progress"));
+                    } catch (NumberFormatException e) {
+                        System.out.println("Invalid progress: " + cmd.getOptionValue("progress"));
+                        return;
+                    }
+                }
+                if (cmd.hasOption("progressMax")) {
+                    try {
+                        progressMax = Integer.parseInt(cmd.getOptionValue("progressMax"));
+                    } catch (NumberFormatException e) {
+                        System.out.println("Invalid progressMax: " + cmd.getOptionValue("progressMax"));
+                        return;
+                    }
+                }
+                if (progress != null && progressMax == null) {
+                    System.out.println("progressMax is required when progress is set.");
+                    return;
+                } else if (progress == null && progressMax != null) {
+                    System.out.println("progress is required when progressMax is set.");
+                    return;
+                }
+                if ((progress != null && progressMax != null) && (progressMax <= 0 || progress < 0 || progress > progressMax)) {
+                    System.out.println("Invalid progress: " + progress + " / " + progressMax);
+                    return;
+                }
+                sendNotification(title, text, tag, id, autoCancel, progress, progressMax);
                 return;
             }
 
@@ -189,43 +242,46 @@ public class Notification {
             sendHelp();
 
         } catch (MissingArgumentException e) {
-            log("Missing argument for option: " + e.getOption().getOpt());
+            System.out.println(("Missing argument for option: " + e.getOption().getOpt()));
         } catch (UnrecognizedOptionException e) {
-            log("Unrecognized option: " + e.getOption());
+            System.out.println(("Unrecognized option: " + e.getOption()));
         } catch (Throwable e) {
-            log(e);
+            System.out.println("Unexpected exception: " + e.getMessage());
         }
     }
 
-    public static void sendHelp() {
+    private static void sendHelp() {
         HelpFormatter formatter = new HelpFormatter();
         formatter.printHelp("-send", getSendOptions());
         formatter.printHelp("-cancel", getCancelOptions());
     }
 
-    public static void sendNotificationTest() {
-        sendNotification("Title", "Text", null, 0, true);
+    private static void sendNotificationTest() {
+        sendNotification("Title", "Text", null, 0, true, null, null);
     }
 
-    public static void sendNotification(String title, String text, String tag, int id, boolean autoCancel) {
+    private static void sendNotification(String title, String text, String tag, int id, boolean autoCancel, Integer progress, Integer progressMax) {
         Context context = new FakeContext();
-        android.app.Notification notification = new android.app.Notification.Builder(context, MAGIC_NOTIFICATION_CHANNEL_ID)
+        android.app.Notification.Builder builder = new android.app.Notification.Builder(context, MAGIC_NOTIFICATION_CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setAutoCancel(autoCancel)
-                .build();
+                .setAutoCancel(autoCancel);
+        if (progress != null && progressMax != null) {
+            builder.setProgress(progressMax, progress, false);
+        }
+        android.app.Notification notification = builder.build();
         try {
             INotificationManager nm = getNotificationManager();
             createNotificationChannel(nm);
             assert nm != null;
             nm.enqueueNotificationWithTag("android", opPkg, tag, id, notification, 0);
         } catch (Throwable e) {
-            log(e);
+            System.out.println("Failed to send notification: " + e.getMessage());
         }
     }
 
-    public static void cancelNotification(String tag, int id) {
+    private static void cancelNotification(String tag, int id) {
         try {
             INotificationManager nm = getNotificationManager();
             createNotificationChannel(nm);
@@ -236,21 +292,21 @@ public class Notification {
                 nm.cancelNotificationWithTag("android", tag, id, 0);
             }
         } catch (Throwable e) {
-            log(e);
+            System.out.println("Failed to cancel notification: " + e.getMessage());
         }
     }
 
-    public static INotificationManager getNotificationManager() {
+    private static INotificationManager getNotificationManager() {
         try {
             IBinder binder = ServiceManager.getService(Context.NOTIFICATION_SERVICE);
             return INotificationManager.Stub.asInterface(binder);
         } catch (Throwable e) {
-            log(e);
+            System.out.println("Failed to get notification manager: " + e.getMessage());
             return null;
         }
     }
 
-    public static boolean hasNotificationChannelForSystem(INotificationManager nm, String channelId) throws RemoteException {
+    private static boolean hasNotificationChannelForSystem(INotificationManager nm, String channelId) throws RemoteException {
         NotificationChannel channel;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             channel = nm.getNotificationChannelForPackage("android", 1000, channelId, null, false);
@@ -260,7 +316,7 @@ public class Notification {
         return channel != null;
     }
 
-    public static void createNotificationChannel(INotificationManager nm) {
+    private static void createNotificationChannel(INotificationManager nm) {
         ArrayList<NotificationChannel> list = new ArrayList<>();
         try {
             NotificationChannel channel = new NotificationChannel(MAGIC_NOTIFICATION_CHANNEL_ID, MAGIC_NOTIFICATION_CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH);
@@ -274,11 +330,11 @@ public class Notification {
                 nm.createNotificationChannelsForPackage("android", 1000, new ParceledListSlice<>(list));
             }
         } catch (Throwable e) {
-            log(e);
+            System.out.println("Failed to create notification channel: " + e.getMessage());
         }
     }
 
-    public static void log(Object obj) {
+    private static void log(Object obj) {
         String msg;
         if (obj instanceof Throwable) {
             Throwable e = (Throwable) obj;
@@ -286,7 +342,7 @@ public class Notification {
         } else {
             msg = obj.toString();
         }
-        System.out.println(msg);
+        Log.d("MAGIC_NOTIFICATION", msg);
     }
 
 }
