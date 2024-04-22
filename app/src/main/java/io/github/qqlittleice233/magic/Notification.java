@@ -21,6 +21,8 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.UnrecognizedOptionException;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 import io.github.qqlittleice233.magic.util.FakeContext;
 
@@ -72,6 +74,11 @@ public class Notification {
         );
         option.addOption(Option.builder()
                 .longOpt("ongoing")
+                .build()
+        );
+        option.addOption(Option.builder()
+                .hasArg()
+                .longOpt("importance")
                 .build()
         );
         return option;
@@ -132,6 +139,17 @@ public class Notification {
                 .required()
                 .build()
         );
+        group.addOption(Option.builder()
+                .hasArg()
+                .longOpt("importance")
+                .desc("[Optional@Int] Set the importance of this notification. (default: 4) \n" +
+                        "1 - Min notification importance: only shows in the shade, below the fold. \n" +
+                        "2 - Low notification importance: Shows in the shade, and potentially in the status bar, but is not audibly intrusive. \n" +
+                        "3 - Default notification importance: shows everywhere, makes noise, but does not visually intrude. \n" +
+                        "4 - Higher notification importance: shows everywhere, makes noise and peeks. \n")
+                .required()
+                .build()
+        );
         return group;
     }
 
@@ -152,6 +170,15 @@ public class Notification {
                 .build()
         );
         return group;
+    }
+
+    private static Map<Integer, Integer> getImportanceMap() {
+        Map<Integer, Integer> importanceMap = new HashMap<>();
+        importanceMap.put(1, NotificationManager.IMPORTANCE_MIN);
+        importanceMap.put(2, NotificationManager.IMPORTANCE_LOW);
+        importanceMap.put(3, NotificationManager.IMPORTANCE_DEFAULT);
+        importanceMap.put(4, NotificationManager.IMPORTANCE_HIGH);
+        return importanceMap;
     }
 
     private static final Options options = getOptions();
@@ -181,11 +208,12 @@ public class Notification {
                 Integer progress = null;
                 boolean progressNotSure = false;
                 boolean ongoing = cmd.hasOption("ongoing");
+                int importance = 4;
                 if (cmd.hasOption("id")) {
                     try {
                         id = Integer.parseInt(cmd.getOptionValue("id"));
                     } catch (NumberFormatException e) {
-                        System.out.println("Invalid id: " + cmd.getOptionValue("id"));
+                        System.out.println("Invalid id when formatting: " + cmd.getOptionValue("id"));
                         return;
                     }
                 }
@@ -211,7 +239,22 @@ public class Notification {
                 if (cmd.hasOption("progressNotSure")) {
                     progressNotSure = true;
                 }
-                sendNotification(title, text, tag, id, autoCancel, progress, progressNotSure, ongoing);
+                if (cmd.hasOption("importance")) {
+                    try {
+                        importance = Integer.parseInt(cmd.getOptionValue("importance"));
+                    } catch (NumberFormatException e) {
+                        System.out.println("Invalid importance when formatting: " + cmd.getOptionValue("importance"));
+                        return;
+                    }
+                }
+                Map<Integer, Integer> importanceMap = getImportanceMap();
+                if (!importanceMap.containsKey(importance)) {
+                    System.out.println("Invalid importance: " + importance);
+                    return;
+                } else {
+                    importance = importanceMap.get(importance);
+                }
+                sendNotification(title, text, tag, id, autoCancel, progress, progressNotSure, ongoing, importance);
                 return;
             }
 
@@ -222,7 +265,7 @@ public class Notification {
                     try {
                         id = Integer.parseInt(cmd.getOptionValue("id"));
                     } catch (NumberFormatException e) {
-                        System.out.println("Invalid id: " + cmd.getOptionValue("id"));
+                        System.out.println("Invalid id when formatting: " + cmd.getOptionValue("id"));
                         return;
                     }
                 } else {
@@ -254,10 +297,18 @@ public class Notification {
     }
 
     private static void sendNotificationTest() {
-        sendNotification("Title", "Text", null, 0, true, null, false, false);
+        sendNotification("Title", "Text", null, 0, false, null, false, false, NotificationManager.IMPORTANCE_HIGH);
     }
 
-    private static void sendNotification(String title, String text, String tag, int id, boolean autoCancel, Integer progress, boolean progressNotSure, boolean ongoing) {
+    private static void sendNotification(String title,
+                                         String text,
+                                         String tag,
+                                         int id,
+                                         boolean autoCancel,
+                                         Integer progress,
+                                         boolean progressNotSure,
+                                         boolean ongoing,
+                                         int importance) {
         Context context = new FakeContext();
         android.app.Notification.Builder builder = new android.app.Notification.Builder(context, MAGIC_NOTIFICATION_CHANNEL_ID)
                 .setContentTitle(title)
@@ -273,7 +324,7 @@ public class Notification {
         android.app.Notification notification = builder.build();
         try {
             INotificationManager nm = getNotificationManager();
-            createNotificationChannel(nm);
+            createNotificationChannel(nm, importance);
             assert nm != null;
             nm.enqueueNotificationWithTag("android", opPkg, tag, id, notification, 0);
         } catch (Throwable e) {
@@ -284,7 +335,7 @@ public class Notification {
     private static void cancelNotification(String tag, int id) {
         try {
             INotificationManager nm = getNotificationManager();
-            createNotificationChannel(nm);
+            createNotificationChannel(nm, NotificationManager.IMPORTANCE_HIGH);
             assert nm != null;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 nm.cancelNotificationWithTag("android", "android", tag, id, 0);
@@ -316,10 +367,10 @@ public class Notification {
         return channel != null;
     }
 
-    private static void createNotificationChannel(INotificationManager nm) {
+    private static void createNotificationChannel(INotificationManager nm, int importance) {
         ArrayList<NotificationChannel> list = new ArrayList<>();
         try {
-            NotificationChannel channel = new NotificationChannel(MAGIC_NOTIFICATION_CHANNEL_ID, MAGIC_NOTIFICATION_CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH);
+            NotificationChannel channel = new NotificationChannel(MAGIC_NOTIFICATION_CHANNEL_ID, MAGIC_NOTIFICATION_CHANNEL_NAME, importance);
             list.add(channel);
             channel.setShowBadge(false);
             if (hasNotificationChannelForSystem(nm, MAGIC_NOTIFICATION_CHANNEL_ID)) {
