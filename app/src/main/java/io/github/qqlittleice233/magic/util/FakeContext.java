@@ -22,6 +22,8 @@ public class FakeContext extends ContextWrapper {
     static ApplicationInfo systemApplicationInfo = null;
     static Resources.Theme theme = null;
     private String packageName = "android";
+    private static final String opPkg = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ?
+            "android" : "com.android.settings";
     public FakeContext() {
         super(null);
     }
@@ -43,7 +45,7 @@ public class FakeContext extends ContextWrapper {
 
     @Override
     public String getOpPackageName() {
-        return "android";
+        return opPkg;
     }
 
     private static IPackageManager getIPackageManager() {

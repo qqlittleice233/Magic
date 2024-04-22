@@ -67,8 +67,11 @@ public class Notification {
                 .build()
         );
         option.addOption(Option.builder()
-                .hasArg()
-                .longOpt("progressMax")
+                .longOpt("progressNotSure")
+                .build()
+        );
+        option.addOption(Option.builder()
+                .longOpt("ongoing")
                 .build()
         );
         return option;
@@ -113,14 +116,19 @@ public class Notification {
         group.addOption(Option.builder()
                 .hasArg()
                 .longOpt("progress")
-                .desc("[Optional@Int] Set the progress this notification represents. Progress should be in the range 0 to progressMax.")
+                .desc("[Optional@Int] Set the progress this notification represents. Progress should be in the range 0 to 100.")
                 .required()
                 .build()
         );
         group.addOption(Option.builder()
-                .hasArg()
-                .longOpt("progressMax")
-                .desc("[Optional@Int] Set the maximum progress this notification represents.")
+                .longOpt("progressNotSure")
+                .desc("[Optional] Set whether the progress is indeterminate.")
+                .required()
+                .build()
+        );
+        group.addOption(Option.builder()
+                .longOpt("ongoing")
+                .desc("[Optional] Set whether this is an Ongoing notification. Ongoing notifications cannot be dismissed by the user.")
                 .required()
                 .build()
         );
@@ -171,7 +179,8 @@ public class Notification {
                 String tag = null;
                 int id = 0;
                 Integer progress = null;
-                Integer progressMax = null;
+                boolean progressNotSure = false;
+                boolean ongoing = cmd.hasOption("ongoing");
                 if (cmd.hasOption("id")) {
                     try {
                         id = Integer.parseInt(cmd.getOptionValue("id"));
@@ -191,30 +200,18 @@ public class Notification {
                     try {
                         progress = Integer.parseInt(cmd.getOptionValue("progress"));
                     } catch (NumberFormatException e) {
-                        System.out.println("Invalid progress: " + cmd.getOptionValue("progress"));
+                        System.out.println("Invalid progress when formatting: " + cmd.getOptionValue("progress"));
                         return;
                     }
                 }
-                if (cmd.hasOption("progressMax")) {
-                    try {
-                        progressMax = Integer.parseInt(cmd.getOptionValue("progressMax"));
-                    } catch (NumberFormatException e) {
-                        System.out.println("Invalid progressMax: " + cmd.getOptionValue("progressMax"));
-                        return;
-                    }
-                }
-                if (progress != null && progressMax == null) {
-                    System.out.println("progressMax is required when progress is set.");
-                    return;
-                } else if (progress == null && progressMax != null) {
-                    System.out.println("progress is required when progressMax is set.");
+                if (progress != null && !(progress >= 0 && progress <= 100)) {
+                    System.out.println("Invalid progress: " + progress);
                     return;
                 }
-                if ((progress != null && progressMax != null) && (progressMax <= 0 || progress < 0 || progress > progressMax)) {
-                    System.out.println("Invalid progress: " + progress + " / " + progressMax);
-                    return;
+                if (cmd.hasOption("progressNotSure")) {
+                    progressNotSure = true;
                 }
-                sendNotification(title, text, tag, id, autoCancel, progress, progressMax);
+                sendNotification(title, text, tag, id, autoCancel, progress, progressNotSure, ongoing);
                 return;
             }
 
@@ -257,18 +254,21 @@ public class Notification {
     }
 
     private static void sendNotificationTest() {
-        sendNotification("Title", "Text", null, 0, true, null, null);
+        sendNotification("Title", "Text", null, 0, true, null, false, false);
     }
 
-    private static void sendNotification(String title, String text, String tag, int id, boolean autoCancel, Integer progress, Integer progressMax) {
+    private static void sendNotification(String title, String text, String tag, int id, boolean autoCancel, Integer progress, boolean progressNotSure, boolean ongoing) {
         Context context = new FakeContext();
         android.app.Notification.Builder builder = new android.app.Notification.Builder(context, MAGIC_NOTIFICATION_CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setAutoCancel(autoCancel);
-        if (progress != null && progressMax != null) {
-            builder.setProgress(progressMax, progress, false);
+                .setAutoCancel(autoCancel)
+                .setOngoing(ongoing);
+        if (progress != null || progressNotSure) {
+            int progressMax = 100;
+            int finalProgress = progress != null ? progress : 0;
+            builder.setProgress(progressMax, finalProgress, progressNotSure);
         }
         android.app.Notification notification = builder.build();
         try {
